@@ -395,11 +395,13 @@ void HGCAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
 
   std::map<int, float> elsum;
 
-  for (const auto& hit : rechitManager) {
+  for (size_t i = 0; i < rechitManager.size(); ++i) {
+    const auto& hit = rechitManager[i];
     DetId detId = hit.id();
     int layer = rhtools_.getLayerWithOffset(detId) + layers_ * ((rhtools_.zside(detId) + 1) >> 1) - 1;
     elsum[layer] += hit.energy();
-    if (detId.det() == DetId::Detector::HGCalEE) {
+    const auto [vecId, localId] = rechitManager.getVectorAndLocalIndex(i);
+    if (vecId == 0) {
       if (hit.energy() > 30.0 || (hit.energy() > 5.00 && hit.energy() < 5.2)) {
         cout << "rechitsEE-check en " << hit.energy() << "  layer " << layer << "   lastlayer " << layers_;
         cout << "  layer " << rhtools_.getLayerWithOffset(detId) << endl;
@@ -412,7 +414,7 @@ void HGCAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
           analyzeHGCalSimHit(eeSimHits, "EE", detId, hit.energy());
         }
       }
-    } else if (detId.det() == DetId::Detector::HGCalHSi) {
+    } else if (vecId == 1) {
       if (hit.energy() > 40.0 || (hit.energy() > 5.0 && hit.energy() < 5.1)) {
         cout << "rechitsFH-check en " << hit.energy() << "  layer " << layer << "   lastlayer " << layers_;
         cout << "  layer " << rhtools_.getLayerWithOffset(detId) << endl;
@@ -420,7 +422,7 @@ void HGCAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetu
           analyzeHGCalSimHit(fhSimHits, "FH", detId, hit.energy());
         }
       }
-    } else if (detId.det() == DetId::Detector::HGCalHSc) {
+    } else if (vecId == 2) {
       if (hit.energy() > 1000.0) {
         cout << "rechitsFH-check en " << hit.energy() << "  layer " << layer << "   lastlayer " << layers_;
         cout << "  layer " << rhtools_.getLayerWithOffset(detId) << endl;
