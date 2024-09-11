@@ -911,6 +911,7 @@ TICLDumper::TICLDumper(const edm::ParameterSet& ps)
       saveTracks_(ps.getParameter<bool>("saveTracks")),
       saveAssociationsHits_(ps.getParameter<bool>("saveAssociationsHits")),
       //removed 1 line below added rechit
+      
       //saveAssociations_(ps.getParameter<bool>("saveAssociations")) {
       saveAssociations_(ps.getParameter<bool>("saveAssociations")),
       saveRecHits_(ps.getParameter<bool>("saveRecHits")),
@@ -1965,8 +1966,8 @@ void TICLDumper::analyze(const edm::Event& event, const edm::EventSetup& setup) 
     uint32_t number_of_hits = cluster_iterator->hitsAndFractions().size();
     cluster_number_of_hits.push_back(number_of_hits);
     //ADDED REDCHITINGFO
-    // cluster_type.push_back(ticl::returnClusterType(lc_seed, rhtools_));
-    cluster_type.push_back(detectorTools_->rhtools.getCellType(lc_seed));
+    //cluster_type.push_back(ticl::returnClusterType(lc_seed, rhtools_));
+    //cluster_type.push_back(detectorTools_->rhtools.getCellType(lc_seed));
     cluster_type.push_back(rhtools_.getCellType(lc_seed));
     cluster_timeErr.push_back(layerClustersTimes.get(c_id).second);
     cluster_time.push_back(layerClustersTimes.get(c_id).first);
