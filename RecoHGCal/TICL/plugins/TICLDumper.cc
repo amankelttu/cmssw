@@ -482,17 +482,20 @@ private:
   std::vector<int> track_isMuon;
   std::vector<int> track_isTrackerMuon;
   //added variable defs
-   std::vector<uint32_t> rechit_ID;
+  std::vector<uint32_t> rechit_ID;
   std::vector<float> rechit_energy;
+  std::vector<float> rechit_noise;
   std::vector<float> rechit_x;
   std::vector<float> rechit_y;
   std::vector<float> rechit_z;
 
   std::vector<uint32_t> simhit_ID;
   std::vector<float> simhit_energy;
+  std::vector<float> simhit_noise;
   std::vector<float> simhit_x;
   std::vector<float> simhit_y;
   std::vector<float> simhit_z;
+
   std::vector<std::vector<uint32_t>> rechits_inLC;
   
   TTree* trackster_tree_;
@@ -821,12 +824,14 @@ void TICLDumper::clearVariables() {
   //added rechit items
   rechit_ID.clear();
   rechit_energy.clear();
+  rechit_noise.clear();
   rechit_x.clear();
   rechit_y.clear();
   rechit_z.clear();
 
   simhit_ID.clear();
   simhit_energy.clear();
+  simhit_noise.clear();
   simhit_x.clear();
   simhit_y.clear();
   simhit_z.clear();
@@ -980,6 +985,7 @@ void TICLDumper::beginJob() {
     rechits_tree_ = fs->make<TTree>("rechits", "HGCAL rechits");
     rechits_tree_->Branch("ID", &rechit_ID);
     rechits_tree_->Branch("energy", &rechit_energy);
+    rechits_tree_->Branch("noise", &rechit_noise);
     rechits_tree_->Branch("position_x", &rechit_x);
     rechits_tree_->Branch("position_y", &rechit_y);
     rechits_tree_->Branch("position_z", &rechit_z);
@@ -989,6 +995,7 @@ void TICLDumper::beginJob() {
     simhits_tree_ = fs->make<TTree>("simhits", "HGCAL simhits");
     simhits_tree_->Branch("ID", &simhit_ID);
     simhits_tree_->Branch("energy", &simhit_energy);
+    simhits_tree_->Branch("noise", &simhit_noise);
     simhits_tree_->Branch("position_x", &simhit_x);
     simhits_tree_->Branch("position_y", &simhit_y);
     simhits_tree_->Branch("position_z", &simhit_z);
@@ -1518,6 +1525,7 @@ void TICLDumper::analyze(const edm::Event& event, const edm::EventSetup& setup) 
   for (auto const& rhColl : rechits_collections) {
     for (auto const& rh : rhColl) {
       rechit_energy.push_back(rh.energy());
+      rechit_noise.push_back(rh.signalOverSigmaNoise());
       auto const rhPosition = rhtools_.getPosition(rh.detid());
       rechit_x.push_back(rhPosition.x());
       rechit_y.push_back(rhPosition.y());
@@ -1528,6 +1536,7 @@ void TICLDumper::analyze(const edm::Event& event, const edm::EventSetup& setup) 
   for (auto const& shColl : simhits_collections) {
     for (auto const& sh : shColl) {
       simhit_energy.push_back(sh.energy());
+      //      simhit_noise.push_back(sh.signalOverSigmaNoise());
       auto const shPosition = rhtools_.getPosition(sh.id());
       simhit_x.push_back(shPosition.x());
       simhit_y.push_back(shPosition.y());
