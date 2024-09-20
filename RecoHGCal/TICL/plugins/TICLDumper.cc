@@ -7,7 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <variant>
-
+#include <stdlib.h>
 #include <memory>  // unique_ptr
 #include "FWCore/ParameterSet/interface/ConfigurationDescriptions.h"
 #include "FWCore/ParameterSet/interface/PluginDescription.h"
@@ -21,7 +21,7 @@
 #include "FWCore/Framework/interface/MakerMacros.h"
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
 #include "FWCore/ServiceRegistry/interface/Service.h"
-
+#include "FWCore/Utilities/interface/transform.h"
 #include "DataFormats/Provenance/interface/EventID.h"
 #include "DataFormats/CaloRecHit/interface/CaloCluster.h"
 #include "DataFormats/HGCalReco/interface/Trackster.h"
@@ -33,8 +33,10 @@
 #include "DataFormats/Math/interface/Point3D.h"
 #include "DataFormats/GeometrySurface/interface/BoundDisk.h"
 #include "DataFormats/HGCalReco/interface/Common.h"
+#include "DataFormats/HGCRecHit/interface/HGCRecHitCollections.h"
 #include "SimDataFormats/CaloAnalysis/interface/CaloParticle.h"
 #include "SimDataFormats/CaloAnalysis/interface/SimCluster.h"
+#include "SimDataFormats/CaloHit/interface/PCaloHit.h"
 #include "DataFormats/EgammaReco/interface/SuperClusterFwd.h"
 #include "DataFormats/EgammaReco/interface/SuperCluster.h"
 
@@ -264,6 +266,11 @@ public:
       trackster_time.push_back(trackster_iterator->time());
       trackster_timeError.push_back(trackster_iterator->timeError());
       trackster_regressed_energy.push_back(trackster_iterator->regressed_energy());
+      if (tracksterType_ == TracksterType::SimTracksterSC){
+	std::cout<<"trackster_iterator_energy: "<< trackster_iterator->regressed_energy()<<std::endl;
+      }
+      if (tracksterType_ == TracksterType::SimTracksterCP) {
+	std::cout<<"trackster_iterator_energy: "<< trackster_iterator->regressed_energy()<<std::endl;}
       trackster_raw_energy.push_back(trackster_iterator->raw_energy());
       trackster_raw_em_energy.push_back(trackster_iterator->raw_em_energy());
       trackster_raw_pt.push_back(trackster_iterator->raw_pt());
@@ -634,12 +641,18 @@ private:
 
   const edm::EDGetTokenT<std::vector<SimCluster>> simclusters_token_;
   const edm::EDGetTokenT<std::vector<CaloParticle>> caloparticles_token_;
-
+  ////std::cout<<"rechits labels"<<std::endl;
+  const std::vector<edm::InputTag> label_rechits;
+  const std::vector<edm::EDGetTokenT<HGCRecHitCollection>> rechits_tokens_;
+  const std::vector<edm::InputTag> label_simhits;
+  const std::vector<edm::EDGetTokenT<std::vector<PCaloHit>>> simhits_tokens_;
   const edm::ESGetToken<CaloGeometry, CaloGeometryRecord> geometry_token_;
   const std::string detector_;
   const std::string propName_;
   const edm::ESGetToken<MagneticField, IdealMagneticFieldRecord> bfield_token_;
   const edm::ESGetToken<Propagator, TrackingComponentsRecord> propagator_token_;
+  
+  //hgcal::RecHitTools rhtools;  
   edm::ESGetToken<HGCalDDDConstants, IdealGeometryRecord> hdc_token_;
   std::unique_ptr<DetectorTools> detectorTools_;
   bool saveLCs_;
@@ -649,7 +662,8 @@ private:
   bool saveTICLCandidate_;
   bool saveSimTICLCandidate_;
   bool saveTracks_;
-
+  bool saveRecHits_;
+  bool saveSimHits_;
   // Output tree
   TTree* tree_;
 
@@ -747,12 +761,29 @@ private:
   std::vector<int> track_nhits;
   std::vector<int> track_isMuon;
   std::vector<int> track_isTrackerMuon;
+  //  added rechits
+  ////std::cout<<"rechits defineds"<<std::endl;
+  std::vector<uint32_t> rechit_ID;
+  std::vector<float> rechit_energy;
+  std::vector<float> rechit_noise;
+  std::vector<float> rechit_x;
+  std::vector<float> rechit_y;
+  std::vector<float> rechit_z;
 
+  std::vector<uint32_t> simhit_ID;
+  std::vector<float> simhit_energy;
+  std::vector<float> simhit_x;
+  std::vector<float> simhit_y;
+  std::vector<float> simhit_z;
+  std::vector<std::vector<uint32_t>> rechits_inLC;
+  
   TTree* cluster_tree_;
   TTree* candidate_tree_;
   TTree* superclustering_tree_;
   TTree* tracks_tree_;
   TTree* simTICLCandidate_tree;
+  TTree* rechits_tree_;
+  TTree* simhits_tree_;
 };
 
 void TICLDumper::clearVariables() {
@@ -849,6 +880,22 @@ void TICLDumper::clearVariables() {
   track_nhits.clear();
   track_isMuon.clear();
   track_isTrackerMuon.clear();
+  //added rechit items
+  ////std::cout<<"rechits cleared"<<std::endl;
+  rechit_ID.clear();
+  rechit_energy.clear();
+  rechit_noise.clear();
+  rechit_x.clear();
+  rechit_y.clear();
+  rechit_z.clear();
+
+  simhit_ID.clear();
+  simhit_energy.clear();
+  simhit_x.clear();
+  simhit_y.clear();
+  simhit_z.clear();
+  rechits_inLC.clear();
+
 };
 
 TICLDumper::TICLDumper(const edm::ParameterSet& ps)
@@ -889,6 +936,13 @@ TICLDumper::TICLDumper(const edm::ParameterSet& ps)
       associations_dumperHelpers_(associations_parameterSets_.size()),
       simclusters_token_(consumes(ps.getParameter<edm::InputTag>("simclusters"))),
       caloparticles_token_(consumes(ps.getParameter<edm::InputTag>("caloparticles"))),
+      ////std::cout<<"rechits labels filling"<<std::endl;
+      label_rechits(ps.getParameter<std::vector<edm::InputTag>>("label_rechits")),
+      rechits_tokens_{edm::vector_transform(
+          label_rechits, [this](const edm::InputTag& lab) { return consumes<HGCRecHitCollection>(lab); })},
+      label_simhits(ps.getParameter<std::vector<edm::InputTag>>("label_simhits")),
+      simhits_tokens_{edm::vector_transform(
+          label_simhits, [this](const edm::InputTag& lab) { return consumes<std::vector<PCaloHit>>(lab); })},
       geometry_token_(esConsumes<CaloGeometry, CaloGeometryRecord, edm::Transition::BeginRun>()),
       detector_(ps.getParameter<std::string>("detector")),
       propName_(ps.getParameter<std::string>("propagator")),
@@ -901,7 +955,10 @@ TICLDumper::TICLDumper(const edm::ParameterSet& ps)
       saveRecoSuperclusters_(ps.getParameter<bool>("saveRecoSuperclusters")),
       saveTICLCandidate_(ps.getParameter<bool>("saveSimTICLCandidate")),
       saveSimTICLCandidate_(ps.getParameter<bool>("saveSimTICLCandidate")),
-      saveTracks_(ps.getParameter<bool>("saveTracks")) {
+      saveTracks_(ps.getParameter<bool>("saveTracks")),
+      //	//std::cout<<"rechits savess"<<std::endl;	
+       saveRecHits_(ps.getParameter<bool>("saveRecHits")),
+      saveSimHits_(ps.getParameter<bool>("saveSimHits")) {
   std::string detectorName_ = (detector_ == "HFNose") ? "HGCalHFNoseSensitive" : "HGCalEESensitive";
   hdc_token_ =
       esConsumes<HGCalDDDConstants, IdealGeometryRecord, edm::Transition::BeginRun>(edm::ESInputTag("", detectorName_));
@@ -967,6 +1024,7 @@ void TICLDumper::beginJob() {
     cluster_tree_->Branch("cluster_time", &cluster_time);
     cluster_tree_->Branch("cluster_timeErr", &cluster_timeErr);
     cluster_tree_->Branch("cluster_number_of_hits", &cluster_number_of_hits);
+    cluster_tree_->Branch("rechits", &rechits_inLC);
   }
   if (saveTICLCandidate_) {
     candidate_tree_ = fs->make<TTree>("candidates", "TICL candidates");
@@ -1059,6 +1117,27 @@ void TICLDumper::beginJob() {
     simTICLCandidate_tree->Branch("simTICLCandidate_pdgId", &simTICLCandidate_pdgId);
     simTICLCandidate_tree->Branch("simTICLCandidate_charge", &simTICLCandidate_charge);
     simTICLCandidate_tree->Branch("simTICLCandidate_track_in_candidate", &simTICLCandidate_track_in_candidate);
+  }
+   //added in rechit info
+  //std::cout<<"b4 rechits saved"<<std::endl;
+  if (saveRecHits_) {
+    //std::cout<<"after rechits saveds"<<std::endl;
+    rechits_tree_ = fs->make<TTree>("rechits", "HGCAL rechits");
+    rechits_tree_->Branch("ID", &rechit_ID);
+    rechits_tree_->Branch("energy", &rechit_energy);
+    rechits_tree_->Branch("noise", &rechit_noise);
+    rechits_tree_->Branch("position_x", &rechit_x);
+    rechits_tree_->Branch("position_y", &rechit_y);
+    rechits_tree_->Branch("position_z", &rechit_z);
+    //std::cout<<"finished rechits saved"<<std::endl;
+  }
+  if (saveSimHits_) {
+    simhits_tree_ = fs->make<TTree>("simhits", "HGCAL simhits");
+    simhits_tree_->Branch("ID", &simhit_ID);
+    simhits_tree_->Branch("energy", &simhit_energy);
+    simhits_tree_->Branch("position_x", &simhit_x);
+    simhits_tree_->Branch("position_y", &simhit_y);
+    simhits_tree_->Branch("position_z", &simhit_z);
   }
 }
 
@@ -1178,7 +1257,7 @@ void TICLDumper::analyze(const edm::Event& event, const edm::EventSetup& setup) 
   auto simclusters_h = event.getHandle(simclusters_token_);
 
   nclusters_ = clusters.size();
-
+  
   // Save all the trackster collections
   for (unsigned int i = 0; i < tracksters_dumperHelpers_.size(); i++) {
     edm::Handle<std::vector<ticl::Trackster>> tracksters_handle;
@@ -1264,6 +1343,11 @@ void TICLDumper::analyze(const edm::Event& event, const edm::EventSetup& setup) 
     cluster_timeErr.push_back(layerClustersTimes.get(c_id).second);
     cluster_time.push_back(layerClustersTimes.get(c_id).first);
     c_id += 1;
+    std::vector<uint32_t> hits_detid;
+    for (auto const& handf : cluster_iterator->hitsAndFractions()) {
+      hits_detid.push_back(handf.first);
+    }
+    rechits_inLC.push_back(hits_detid);
   }
 
   tracksters_in_candidate.resize(ticlcandidates.size());
@@ -1354,7 +1438,50 @@ void TICLDumper::analyze(const edm::Event& event, const edm::EventSetup& setup) 
       }
     }
   }
+    //std::cout<<"rechits collections"<<std::endl;
+  std::vector<HGCRecHitCollection> rechits_collections;
+  for (auto const& rh_token : rechits_tokens_) {
+    edm::Handle<HGCRecHitCollection> rechit_handle;
+    event.getByToken(rh_token, rechit_handle);
+    rechits_collections.push_back(*rechit_handle);
+  }
+  std::vector<std::vector<PCaloHit>> simhits_collections;
+  for (auto const& sh_token : simhits_tokens_) {
+    edm::Handle<std::vector<PCaloHit>> simhit_handle;
+    event.getByToken(sh_token, simhit_handle);
+    simhits_collections.push_back(*simhit_handle);
+  }
+  //std::cout<<"rechits collections for loop"<<std::endl;
+  for (auto const& rhColl : rechits_collections) {
+    //	//std::cout<<"rhColl "<< rhColl <<std::endl;
+    //std::cout<<"rechits collections for loop begining"<<std::endl;
+    for (auto const& rh : rhColl) {
+      //std::cout<<"rechits collections for loop second begining"<<std::endl;
+      rechit_energy.push_back(rh.energy());
+      rechit_noise.push_back(rh.signalOverSigmaNoise());
+      //std::cout<<"rechits collections for loop b4 position"<<std::endl;
+      auto const rhPosition = detectorTools_->rhtools.getPosition(rh.detid());
+      //std::cout<<"rechits collections for loop ater position"<<std::endl;
+      rechit_x.push_back(rhPosition.x());
+      rechit_y.push_back(rhPosition.y());
+      rechit_z.push_back(rhPosition.z());
+      rechit_ID.push_back(rh.detid());
+      //std::cout<<"rh "<< rechit_ID <<std::endl;      
+    }
+     //std::cout<<"rechits collections for loop middle"<<std::endl;
+  }
 
+  //std::cout<<"rechits collections for loopend "<<std::endl;
+  for (auto const& shColl : simhits_collections) {
+    for (auto const& sh : shColl) {
+      simhit_energy.push_back(sh.energy());
+      auto const shPosition = detectorTools_->rhtools.getPosition(sh.id());
+      simhit_x.push_back(shPosition.x());
+      simhit_y.push_back(shPosition.y());
+      simhit_z.push_back(shPosition.z());
+      simhit_ID.push_back(sh.id());
+    }
+  }
   if (saveLCs_)
     cluster_tree_->Fill();
   if (saveTICLCandidate_)
@@ -1363,6 +1490,11 @@ void TICLDumper::analyze(const edm::Event& event, const edm::EventSetup& setup) 
     superclustering_tree_->Fill();
   if (saveTracks_)
     tracks_tree_->Fill();
+  //std::cout<<"rechits FILLED"<<std::endl;
+  if (saveRecHits_)
+    rechits_tree_->Fill();
+  if (saveSimHits_)
+    simhits_tree_->Fill();
   if (saveSimTICLCandidate_)
     simTICLCandidate_tree->Fill();
 }
@@ -1371,7 +1503,6 @@ void TICLDumper::endJob() {}
 
 void TICLDumper::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {
   edm::ParameterSetDescription desc;
-
   // Settings for dumping trackster collections
   edm::ParameterSetDescription tracksterDescValidator;
   tracksterDescValidator.add<std::string>("treeName")
@@ -1391,6 +1522,16 @@ void TICLDumper::fillDescriptions(edm::ConfigurationDescriptions& descriptions) 
 
   desc.add<edm::InputTag>("layerClusters", edm::InputTag("hgcalMergeLayerClusters"));
   desc.add<edm::InputTag>("layer_clustersTime", edm::InputTag("hgcalMergeLayerClusters", "timeLayerCluster"));
+  //added rechhitinfo
+  //std::cout<<"rechits desc added"<<std::endl;
+  desc.add<std::vector<edm::InputTag>>("label_rechits",
+				       {edm::InputTag("HGCalRecHit", "HGCEERecHits"),
+                                        edm::InputTag("HGCalRecHit", "HGCHEFRecHits"),
+                                        edm::InputTag("HGCalRecHit", "HGCHEBRecHits")});
+  desc.add<std::vector<edm::InputTag>>("label_simhits",
+                                       {edm::InputTag("g4SimHits", "HGCHitsEE"),
+                                        edm::InputTag("g4SimHits", "HGCHitsHEfront"),
+                                        edm::InputTag("g4SimHits", "HGCHitsHEback")});
   desc.add<edm::InputTag>("ticlcandidates", edm::InputTag("ticlTrackstersMerge"));
   desc.add<edm::InputTag>("tracks", edm::InputTag("generalTracks"));
   desc.add<edm::InputTag>("tracksTime", edm::InputTag("tofPID:t0"));
@@ -1437,6 +1578,8 @@ void TICLDumper::fillDescriptions(edm::ConfigurationDescriptions& descriptions) 
   desc.add<bool>("saveSimTICLCandidate", true);
   desc.add<bool>("saveTracks", true);
   desc.add<bool>("saveSuperclustering", true);
+  desc.add<bool>("saveRecHits", true);
+  desc.add<bool>("saveSimHits", true);
   desc.add<bool>("saveRecoSuperclusters", true)
       ->setComment("Save superclustering Egamma collections (as reco::SuperCluster)");
   descriptions.add("ticlDumper", desc);
